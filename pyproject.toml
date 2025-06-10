@@ -21,18 +21,25 @@ classifiers = [
     "Topic :: System :: Networking",
 ]
 dependencies = [
+    "aiofiles>=24.1.0",
     "aiohttp>=3.12.11",
+    "pydantic>=2.11.5",
     "typer>=0.16.0",
 ]
 
+[project.scripts]
+loco = "loco.cli.main:app"
+
 [dependency-groups]
 dev = [
+    "isort>=6.0.1",
     "mypy>=1.16.0",
     "pre-commit>=4.2.0",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
     "pytest-xdist>=3.7.0",
     "ruff>=0.11.13",
+    "types-aiofiles>=24.1.0.20250606",
 ]
 
 [project.urls]
@@ -42,6 +49,7 @@ Repository = "https://github.com/Daniel-Brai/Loco"
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+include = ["pyproject.toml", "src/**/*.py", "scripts/**/*.py"]
 extend-exclude = [
     "__pycache__",
     ".pytest_cache",
@@ -68,10 +76,13 @@ select = [
     "PL",  # pylint
     "RUF", # ruff-specific rules
 ]
+extend-select = ["I"]
 ignore = [
     "E501",   # line too long, handled by black
     "PLR0913", # too many arguments
     "PLR2004", # magic value comparison
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
 ]
 
 [tool.ruff.lint.per-file-ignores]
