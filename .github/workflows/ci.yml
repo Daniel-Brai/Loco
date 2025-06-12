@@ -30,7 +30,7 @@ jobs:
           uv pip install -e .
 
       - name: Verify CLI works
-        run: loco --version
+        run: python -m loco.cli.main --version
 
   test:
     runs-on: ubuntu-latest
