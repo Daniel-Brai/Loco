@@ -119,7 +119,6 @@ class TunnelProxy:
                 self._forward_data(local_socket, client_socket, "local->client")
             )
 
-            # Wait for either direction to complete
             _, pending = await asyncio.wait(
                 [client_to_local, local_to_client],
                 return_when=asyncio.FIRST_COMPLETED,

@@ -135,7 +135,6 @@ class TunnelManager:
                             tunnel.state.status = TunnelStatus.STOPPED
                             await self.storage.save_tunnel_state(tunnel.state)
                     else:
-                        # Ensure new tunnels have their state saved immediately
                         await self.storage.save_tunnel_state(tunnel.state)
                 except Exception as e:
                     logger.warning(

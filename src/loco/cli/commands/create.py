@@ -137,7 +137,9 @@ async def create_tunnel_async(
             try:
                 from .logs import stream_logs_async
 
-                await stream_logs_async(tunnel_id, follow=True, header=False)
+                await stream_logs_async(
+                    tunnel_id, follow=True, header=False, manager=manager
+                )
             except KeyboardInterrupt:
                 console.print("\n[bold yellow]Stopping tunnel...")
                 await manager.stop_tunnel(tunnel_id)

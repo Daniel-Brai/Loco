@@ -134,9 +134,7 @@ def main(
     elif verbose:
         setup_logging(logging.INFO)
     else:
-        setup_logging(
-            logging.CRITICAL + 1
-        )  # Higher than CRITICAL to suppress everything
+        setup_logging(logging.CRITICAL + 1)
 
     if version:
         banner_lines = get_ascii_banner().split("\n")

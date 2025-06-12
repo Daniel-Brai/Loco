@@ -13,12 +13,16 @@ console = Console()
 
 
 async def stream_logs_async(
-    tunnel_id: str, follow: bool = True, header: bool = True
+    tunnel_id: str,
+    follow: bool = True,
+    header: bool = True,
+    manager: TunnelManager | None = None,
 ) -> None:
     """Stream logs for a tunnel."""
     try:
-        manager = TunnelManager()
-        await manager.load_from_storage()
+        if manager is None:
+            manager = TunnelManager()
+            await manager.load_from_storage()
 
         tunnel = manager.get_tunnel(tunnel_id)
         tunnel_name = tunnel.config.name or tunnel.config.tunnel_id[:8]
@@ -45,9 +49,6 @@ async def stream_logs_async(
 
         if hasattr(tunnel, "register_log_handler"):
             tunnel.register_log_handler(lambda log: log_queue.put_nowait(log))
-
-        if log_queue.empty():
-            await _add_sample_logs(log_queue, tunnel_id)
 
         try:
             while follow:
@@ -112,77 +113,3 @@ def _print_log_entry(entry: dict[Any, Any]) -> None:
 def _get_timestamp() -> str:
     """Get current timestamp for logs."""
     return datetime.now().strftime("%H:%M:%S")
-
-
-async def _add_sample_logs(
-    queue: asyncio.Queue[dict[str, Any]], tunnel_id: str
-) -> None:
-    """Add sample logs to the queue for demonstration."""
-    sample_logs = [
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "GET",
-            "path": "/",
-            "status": 200,
-            "ip": "127.0.0.1",
-            "duration": 12.34,
-            "tunnel_id": tunnel_id,
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "POST",
-            "path": "/api/users",
-            "status": 201,
-            "ip": "127.0.0.1",
-            "duration": 45.67,
-            "tunnel_id": tunnel_id,
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "GET",
-            "path": "/api/products?category=electronics",
-            "ip": "127.0.0.1",
-            "status": 201,
-            "duration": 8.90,
-            "tunnel_id": tunnel_id,
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "PUT",
-            "path": "/api/users/123",
-            "status": 204,
-            "ip": "127.0.0.1",
-            "duration": 23.45,
-            "tunnel_id": tunnel_id,
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "GET",
-            "path": "/api/unknown",
-            "status": 404,
-            "ip": "127.0.0.1",
-            "duration": 5.67,
-            "tunnel_id": tunnel_id,
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "POST",
-            "path": "/api/auth",
-            "status": 403,
-            "ip": "127.0.0.1",
-            "duration": 11.22,
-            "tunnel_id": tunnel_id,
-        },
-        {
-            "timestamp": datetime.now().isoformat(),
-            "method": "GET",
-            "path": "/api/error",
-            "status": 500,
-            "ip": "127.0.0.1",
-            "duration": 33.44,
-            "tunnel_id": tunnel_id,
-        },
-    ]
-
-    for log in sample_logs:
-        await queue.put(log)
