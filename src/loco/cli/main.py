@@ -9,7 +9,7 @@ from rich.text import Text
 
 from .. import get_ascii_banner
 from ..utils.logging import setup_logging
-from .commands import cleanup, create, list, start, status, stop
+from .commands import cleanup, create, list, logs, start, status, stop
 
 app = typer.Typer(
     name="loco",
@@ -34,9 +34,12 @@ def create_tunnel(
     remote_port: int | None = typer.Option(
         None, "--remote-port", "-r", help="Remote port"
     ),
-    host: str = typer.Option("localhost", "--host", help="Local host"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Local host"),
     start: bool = typer.Option(
         True, "--start/--no-start", help="Start tunnel immediately"
+    ),
+    logs: bool = typer.Option(
+        True, "--logs/--no-logs", help="Stream logs after starting tunnel"
     ),
 ) -> None:
     """Create a new tunnel."""
@@ -49,6 +52,7 @@ def create_tunnel(
             remote_port=remote_port,
             host=host,
             start=start,
+            logs=logs,
         )
     )
 
@@ -65,12 +69,6 @@ def start_tunnel(
 ) -> None:
     """Start a stopped tunnel."""
     asyncio.run(start.start_tunnel_async(tunnel_id))
-
-
-@app.command("start-all")
-def start_all_tunnels() -> None:
-    """Start all stopped tunnels."""
-    asyncio.run(start.start_all_tunnels_async())
 
 
 @app.command("stop")
@@ -107,6 +105,17 @@ def cleanup_all_tunnels(
 ) -> None:
     """Clean up all tunnels (including active ones)."""
     asyncio.run(cleanup.cleanup_all_async(force))
+
+
+@app.command("logs")
+def logs_tunnel(
+    tunnel_id: str = typer.Argument(..., help="Tunnel ID to view logs for"),
+    follow: bool = typer.Option(
+        True, "--follow", "-f", help="Follow logs in real time"
+    ),
+) -> None:
+    """Stream logs for a tunnel."""
+    asyncio.run(logs.stream_logs_async(tunnel_id, follow))
 
 
 @app.callback(invoke_without_command=True)
@@ -156,6 +165,7 @@ def main(
         console.print("  [cyan]stop[/cyan]          Stop a tunnel")
         console.print("  [cyan]stop-all[/cyan]      Stop all active tunnels")
         console.print("  [cyan]status[/cyan]        Show tunnel status")
+        console.print("  [cyan]logs[/cyan]          Show tunnel logs")
         console.print("  [cyan]cleanup[/cyan]       Clean up stopped tunnels")
         console.print(
             "  [cyan]cleanup-all[/cyan]   Clean up all tunnels (active and stopped)"

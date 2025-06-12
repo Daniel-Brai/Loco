@@ -41,48 +41,53 @@ class TunnelManager:
         self._tunnels[config.tunnel_id] = tunnel
 
         await self.storage.save_tunnel_config(config)
+        await self.storage.save_tunnel_state(tunnel.state)
 
         logger.info(f"Created tunnel {config.tunnel_id}")
         return config.tunnel_id
 
     async def start_tunnel(self, tunnel_id: str) -> None:
-        """Start a tunnel."""
-        tunnel = self._get_tunnel(tunnel_id)
+        """Start a tunnel by ID or partial ID."""
+        tunnel = self._get_tunnel_by_partial_id(tunnel_id)
         await tunnel.start()
 
-        await self.storage.save_tunnel_state(tunnel.state)
+        await self.sync_tunnel_state(tunnel.config.tunnel_id)
 
     async def stop_tunnel(self, tunnel_id: str) -> None:
-        """Stop a tunnel."""
-        tunnel = self._get_tunnel(tunnel_id)
+        """Stop a tunnel by ID or partial ID."""
+        tunnel = self._get_tunnel_by_partial_id(tunnel_id)
         await tunnel.stop()
 
-        await self.storage.save_tunnel_state(tunnel.state)
+        await self.sync_tunnel_state(tunnel.config.tunnel_id)
 
     async def remove_tunnel(self, tunnel_id: str) -> None:
-        """Remove a tunnel."""
-        if tunnel_id in self._tunnels:
-            tunnel = self._tunnels[tunnel_id]
-            if tunnel.is_active():
-                await tunnel.stop()
-            del self._tunnels[tunnel_id]
+        """Remove a tunnel by ID or partial ID."""
+        tunnel = self._get_tunnel_by_partial_id(tunnel_id)
+        full_tunnel_id = tunnel.config.tunnel_id
 
-        await self.storage.delete_tunnel(tunnel_id)
+        if tunnel.is_active():
+            await tunnel.stop()
+        del self._tunnels[full_tunnel_id]
 
-        logger.info(f"Removed tunnel {tunnel_id}")
+        await self.storage.delete_tunnel(full_tunnel_id)
+
+        logger.info(f"Removed tunnel {full_tunnel_id}")
 
     async def list_tunnels(self) -> list[TunnelState]:
         """List all tunnels."""
+        for tunnel_id in self._tunnels:
+            await self.sync_tunnel_state(tunnel_id)
+
         return [tunnel.state for tunnel in self._tunnels.values()]
 
     async def get_tunnel_status(self, tunnel_id: str) -> TunnelStatus:
-        """Get tunnel status."""
-        tunnel = self._get_tunnel(tunnel_id)
+        """Get tunnel status by ID or partial ID."""
+        tunnel = self._get_tunnel_by_partial_id(tunnel_id)
         return tunnel.state.status
 
     async def get_tunnel_stats(self, tunnel_id: str) -> dict[str, Any]:
-        """Get tunnel statistics."""
-        tunnel = self._get_tunnel(tunnel_id)
+        """Get tunnel statistics by ID or partial ID."""
+        tunnel = self._get_tunnel_by_partial_id(tunnel_id)
         return tunnel.get_stats()
 
     async def cleanup_stopped_tunnels(self) -> int:
@@ -107,7 +112,7 @@ class TunnelManager:
             if tunnel.is_active():
                 tasks.append(tunnel.stop())
 
-        if tasks:
+        if len(tasks) > 0:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def load_from_storage(self) -> None:
@@ -123,13 +128,90 @@ class TunnelManager:
                     state = await self.storage.load_tunnel_state(config.tunnel_id)
                     if state:
                         tunnel.state = state
+                        if tunnel.state.status in [
+                            TunnelStatus.ACTIVE,
+                            TunnelStatus.STARTING,
+                        ]:
+                            tunnel.state.status = TunnelStatus.STOPPED
+                            await self.storage.save_tunnel_state(tunnel.state)
+                    else:
+                        # Ensure new tunnels have their state saved immediately
+                        await self.storage.save_tunnel_state(tunnel.state)
                 except Exception as e:
                     logger.warning(
                         f"Could not load state for tunnel {config.tunnel_id}: {e}"
                     )
+            else:
+                try:
+                    state = await self.storage.load_tunnel_state(config.tunnel_id)
+                    if state:
+                        existing_tunnel = self._tunnels[config.tunnel_id]
+                        if not existing_tunnel.is_active():
+                            existing_tunnel.state = state
+                            if existing_tunnel.state.status in [
+                                TunnelStatus.ACTIVE,
+                                TunnelStatus.STARTING,
+                            ]:
+                                existing_tunnel.state.status = TunnelStatus.STOPPED
+                                await self.storage.save_tunnel_state(
+                                    existing_tunnel.state
+                                )
+                except Exception as e:
+                    logger.warning(
+                        f"Could not update state for tunnel {config.tunnel_id}: {e}"
+                    )
+
+    async def sync_tunnel_state(self, tunnel_id: str) -> None:
+        """Synchronize tunnel state with storage."""
+        tunnel = self._get_tunnel(tunnel_id)
+
+        if tunnel.is_active() and tunnel.state.status != TunnelStatus.ACTIVE:
+            tunnel.state.status = TunnelStatus.ACTIVE
+        elif not tunnel.is_active() and tunnel.state.status not in [
+            TunnelStatus.STOPPED,
+            TunnelStatus.ERROR,
+        ]:
+            tunnel.state.status = TunnelStatus.STOPPED
+
+        await self.storage.save_tunnel_state(tunnel.state)
+        logger.debug(
+            f"Synchronized state for tunnel {tunnel_id}: {tunnel.state.status}"
+        )
 
     def _get_tunnel(self, tunnel_id: str) -> Tunnel:
-        """Get tunnel by ID or raise exception."""
+        """Get tunnel by exact ID or raise exception."""
         if tunnel_id not in self._tunnels:
             raise TunnelNotFoundError(f"Tunnel {tunnel_id} not found")
         return self._tunnels[tunnel_id]
+
+    def _get_tunnel_by_partial_id(self, tunnel_id: str) -> Tunnel:
+        """Get tunnel by ID or partial ID, with name matching support."""
+        if tunnel_id in self._tunnels:
+            return self._tunnels[tunnel_id]
+
+        matching_tunnels: list[Tunnel] = []
+        for full_id, tunnel in self._tunnels.items():
+            if full_id.startswith(tunnel_id) or (
+                tunnel.config.name and tunnel_id.lower() in tunnel.config.name.lower()
+            ):
+                matching_tunnels.append(tunnel)
+
+        if not matching_tunnels:
+            raise TunnelNotFoundError(f"No tunnel found matching '{tunnel_id}'")
+
+        if len(matching_tunnels) > 1:
+            matches = []
+            for tunnel in matching_tunnels:
+                name_info = f" ({tunnel.config.name})" if tunnel.config.name else ""
+                matches.append(f"{tunnel.config.tunnel_id[:8]}...{name_info}")
+
+            raise TunnelError(
+                f"Multiple tunnels match '{tunnel_id}': {', '.join(matches)}. "
+                "Please be more specific."
+            )
+
+        return matching_tunnels[0]
+
+    def get_tunnel(self, tunnel_id: str) -> Tunnel:
+        """Public method to get tunnel by ID or partial ID."""
+        return self._get_tunnel_by_partial_id(tunnel_id)

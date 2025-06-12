@@ -27,10 +27,31 @@ async def status_tunnel_async(tunnel_id: str | None = None) -> None:
 async def _show_tunnel_details(manager: TunnelManager, tunnel_id: str) -> None:
     """Show detailed status for a specific tunnel."""
     try:
-        stats = await manager.get_tunnel_stats(tunnel_id)
+        tunnels = await manager.list_tunnels()
+        matching_tunnels = [
+            t
+            for t in tunnels
+            if t.config.tunnel_id.startswith(tunnel_id)
+            or (t.config.name and tunnel_id.lower() in t.config.name.lower())
+        ]
+
+        if not matching_tunnels:
+            console.print(f"[red]Error: No tunnel found matching '{tunnel_id}'")
+            return
+
+        if len(matching_tunnels) > 1:
+            console.print(f"[yellow]Multiple tunnels match '{tunnel_id}':")
+            for tunnel in matching_tunnels:
+                name_info = f" ({tunnel.config.name})" if tunnel.config.name else ""
+                console.print(f"  • {tunnel.config.tunnel_id[:8]}...{name_info}")
+            console.print("[yellow]Please be more specific.")
+            return
+
+        tunnel = matching_tunnels[0]
+        stats = await manager.get_tunnel_stats(tunnel.config.tunnel_id)
 
         status_color = _get_status_color(stats["status"])
-        status_text = Text(stats["status"].upper(), style=status_color)
+        status_text = Text(stats["status"], style=status_color)
 
         info_table = Table(show_header=False, box=None, padding=(0, 1))
         info_table.add_column("Property", style="bold")
@@ -108,7 +129,7 @@ async def _show_tunnels_overview(manager: TunnelManager) -> None:
                 pass
 
         status_color = _get_status_color(tunnel.status.value)
-        status_text = Text(tunnel.status.value.upper(), style=status_color)
+        status_text = Text(tunnel.status.value, style=status_color)
 
         table.add_row(
             tunnel.config.tunnel_id[:8] + "...",

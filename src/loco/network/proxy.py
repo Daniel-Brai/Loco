@@ -8,14 +8,12 @@ import socket
 from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import TunnelError
-from ..core.models import TunnelProtocol
 from ..utils.logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from ..core.models import TunnelConfig
-    from .server import TunnelServer
 
 
 logger = get_logger("loco.network.proxy")
@@ -23,61 +21,31 @@ logger = get_logger("loco.network.proxy")
 
 class TunnelProxy:
     """
-    Tunnel proxy for handling network connections.\n
-    This class manages the proxying of network connections based on the
-    specified tunnel configuration and protocol.
-    It supports both TCP and event-driven protocols, allowing for flexible
-    tunneling of data between local and remote hosts.
+    Tunnel proxy for handling raw TCP connections.\n
+    This class manages the proxying of raw TCP connections between
+    remote and local hosts.
     Attributes:\n
         config (TunnelConfig): Configuration for the tunnel.
-        server (TunnelServer): The server instance managing the tunnel.
         on_data_transfer (Callable[[int], Any] | None): Optional callback for data transfer events.
     """
 
     def __init__(
         self,
         config: TunnelConfig,
-        server: TunnelServer,
         on_data_transfer: Callable[[int], Any] | None = None,
     ) -> None:
         """Initialize tunnel proxy."""
         self.config = config
-        self.server = server
         self.on_data_transfer = on_data_transfer
         self._running = False
         self._connections: set[asyncio.Task[Any]] = set()
         self._server_socket: socket.socket | None = None
 
     async def start(self) -> None:
-        """Start the proxy."""
+        """Start the TCP proxy."""
         self._running = True
-        logger.info(f"Tunnel proxy started for {self.config.tunnel_id}")
+        logger.info(f"Starting TCP proxy for tunnel {self.config.tunnel_id}")
 
-        if self.config.protocol == TunnelProtocol.TCP:
-            await self._start_tcp_proxy()
-        else:
-            await self._start_event_proxy()
-
-    async def stop(self) -> None:
-        """Stop the proxy."""
-        self._running = False
-
-        for task in list(self._connections):
-            if not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-
-        self._connections.clear()
-
-        if self._server_socket:
-            self._server_socket.close()
-            self._server_socket = None
-
-        logger.info(f"Tunnel proxy stopped for {self.config.tunnel_id}")
-
-    async def _start_tcp_proxy(self) -> None:
-        """Start TCP proxy server."""
         try:
             self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -113,10 +81,23 @@ class TunnelProxy:
             logger.error(f"Failed to start TCP proxy: {e}")
             raise TunnelError(f"TCP proxy startup failed: {e}") from e
 
-    async def _start_event_proxy(self) -> None:
-        """Start event-driven proxy (for HTTP/HTTPS/WebSocket)."""
-        while self._running:
-            await asyncio.sleep(1)
+    async def stop(self) -> None:
+        """Stop the proxy."""
+        self._running = False
+
+        for task in list(self._connections):
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+        self._connections.clear()
+
+        if self._server_socket:
+            self._server_socket.close()
+            self._server_socket = None
+
+        logger.info(f"TCP proxy stopped for tunnel {self.config.tunnel_id}")
 
     async def _handle_tcp_connection(
         self, client_socket: socket.socket, client_addr: tuple[Any, Any]
@@ -138,7 +119,7 @@ class TunnelProxy:
                 self._forward_data(local_socket, client_socket, "local->client")
             )
 
-            # NOTE (Daniel): Here we wait for either direction to complete
+            # Wait for either direction to complete
             _, pending = await asyncio.wait(
                 [client_to_local, local_to_client],
                 return_when=asyncio.FIRST_COMPLETED,

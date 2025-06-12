@@ -5,15 +5,18 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import TunnelError, TunnelStartupError
-from ..core.models import TunnelConfig, TunnelState, TunnelStatus
+from ..core.models import TunnelConfig, TunnelProtocol, TunnelState, TunnelStatus
 from ..utils.logging import get_logger
 from .proxy import TunnelProxy
 from .server import TunnelServer
 
 logger = get_logger("loco.network.tunnel")
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class Tunnel:
@@ -31,7 +34,14 @@ class Tunnel:
     def __init__(self, config: TunnelConfig) -> None:
         """Initialize tunnel with configuration."""
         self.config = config
-        self.state = TunnelState(config=config)
+        self.state = TunnelState(
+            config=config,
+            started_at=None,
+            stopped_at=None,
+            last_activity=None,
+            public_url=None,
+            error_message=None,
+        )
         self._server: TunnelServer | None = None
         self._proxy: TunnelProxy | None = None
         self._server_task: asyncio.Task[Any] | None = None
@@ -40,50 +50,51 @@ class Tunnel:
     async def start(self) -> None:
         """Start the tunnel."""
         if self.is_active():
-            raise TunnelError(f"Tunnel {self.config.tunnel_id} is already active")
+            return
 
         try:
+            logger.info(f"Starting tunnel {self.config.tunnel_id}")
             self.state.status = TunnelStatus.STARTING
             self.state.started_at = datetime.now(UTC)
+            self.state.stopped_at = None
 
-            logger.info(f"Starting tunnel {self.config.tunnel_id}")
-
-            self._server = TunnelServer(
-                config=self.config,
-                on_connection=self._on_connection,
-                on_disconnection=self._on_disconnection,
-            )
-
-            await self._server.start()
-
-            self._proxy = TunnelProxy(
-                config=self.config,
-                server=self._server,
-                on_data_transfer=self._on_data_transfer,
-            )
-
-            self._server_task = asyncio.create_task(self._server.serve_forever())
-            self._proxy_task = asyncio.create_task(self._proxy.start())
-
-            protocol = "https" if self.config.protocol.value == "https" else "http"
-            self.state.public_url = (
-                f"{protocol}://{self.config.remote_host}:{self.config.remote_port}"
-            )
+            if self.config.protocol in [
+                TunnelProtocol.HTTP,
+                TunnelProtocol.HTTPS,
+                TunnelProtocol.WEBSOCKET,
+            ]:
+                self._server = TunnelServer(
+                    config=self.config,
+                    on_connection=self._on_connection,
+                    on_disconnection=self._on_disconnection,
+                    on_log_request=self._log_request,
+                )
+                await self._server.start()
+                self._server_task = asyncio.create_task(self._server.serve_forever())
+            else:
+                self._proxy = TunnelProxy(
+                    config=self.config,
+                    on_data_transfer=self._on_data_transfer,
+                )
+                self._proxy_task = asyncio.create_task(self._proxy.start())
 
             self.state.status = TunnelStatus.ACTIVE
             self.state.last_activity = datetime.now(UTC)
 
-            logger.info(
-                f"Tunnel {self.config.tunnel_id} started successfully at {self.state.public_url}"
-            )
+            if not self.state.public_url:
+                protocol = self.config.protocol.value
+                host = "localhost"
+                port = self.config.remote_port
+                self.state.public_url = f"{protocol}://{host}:{port}"
+
+            logger.info(f"Tunnel {self.config.tunnel_id} started successfully")
 
         except Exception as e:
             self.state.status = TunnelStatus.ERROR
             self.state.error_message = str(e)
+            logger.error(f"Failed to start tunnel {self.config.tunnel_id}: {e}")
             await self._cleanup()
-            raise TunnelStartupError(
-                f"Failed to start tunnel {self.config.tunnel_id}: {e}"
-            ) from e
+            raise TunnelStartupError(f"Failed to start tunnel: {e}") from e
 
     async def stop(self) -> None:
         """Stop the tunnel."""
@@ -92,23 +103,21 @@ class Tunnel:
             return
 
         try:
-            self.state.status = TunnelStatus.STOPPING
             logger.info(f"Stopping tunnel {self.config.tunnel_id}")
+            self.state.status = TunnelStatus.STOPPING
 
             await self._cleanup()
 
             self.state.status = TunnelStatus.STOPPED
             self.state.stopped_at = datetime.now(UTC)
-
-            logger.info(f"Tunnel {self.config.tunnel_id} stopped successfully")
+            self.state.last_activity = datetime.now(UTC)
+            logger.info(f"Tunnel {self.config.tunnel_id} stopped")
 
         except Exception as e:
             self.state.status = TunnelStatus.ERROR
             self.state.error_message = str(e)
             logger.error(f"Error stopping tunnel {self.config.tunnel_id}: {e}")
-            raise TunnelError(
-                f"Failed to stop tunnel {self.config.tunnel_id}: {e}"
-            ) from e
+            raise TunnelError(f"Failed to stop tunnel: {e}") from e
 
     def is_active(self) -> bool:
         """Check if tunnel is active."""
@@ -122,17 +131,23 @@ class Tunnel:
 
         return {
             "tunnel_id": self.config.tunnel_id,
+            "protocol": self.config.protocol.value,
             "status": self.state.status.value,
             "uptime_seconds": uptime_seconds,
-            "active_connections": self.state.active_connections,
-            "total_connections": self.state.total_connections,
-            "bytes_transferred": self.state.bytes_transferred,
-            "public_url": self.state.public_url,
-            "local_service": f"{self.config.local_host}:{self.config.local_port}",
-            "created_at": self.state.created_at.isoformat(),
+            "created_at": (
+                self.state.created_at.isoformat() if self.state.created_at else None
+            ),
             "started_at": (
                 self.state.started_at.isoformat() if self.state.started_at else None
             ),
+            "stopped_at": (
+                self.state.stopped_at.isoformat() if self.state.stopped_at else None
+            ),
+            "public_url": self.state.public_url,
+            "local_service": f"{self.config.local_host}:{self.config.local_port}",
+            "active_connections": self.state.active_connections,
+            "total_connections": self.state.total_connections,
+            "bytes_transferred": self.state.bytes_transferred,
             "last_activity": (
                 self.state.last_activity.isoformat()
                 if self.state.last_activity
@@ -142,61 +157,69 @@ class Tunnel:
         }
 
     async def _cleanup(self) -> None:
-        """Clean up tunnel resources."""
-        if self._server_task and not self._server_task.done():
+        """Clean up resources."""
+        if self._server_task:
             self._server_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._server_task
+            self._server_task = None
 
-        if self._proxy_task and not self._proxy_task.done():
+        if self._proxy_task:
             self._proxy_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._proxy_task
-
-        if self._proxy:
-            await self._proxy.stop()
-            self._proxy = None
+            self._proxy_task = None
 
         if self._server:
             await self._server.stop()
             self._server = None
 
-        self._server_task = None
-        self._proxy_task = None
+        if self._proxy:
+            await self._proxy.stop()
+            self._proxy = None
 
-    async def _on_connection(self, connection_info: dict[str, Any]) -> None:
+    async def _on_connection(self, _connection_info: dict[str, Any]) -> None:
         """Handle new connection."""
         self.state.active_connections += 1
         self.state.total_connections += 1
         self.state.last_activity = datetime.now(UTC)
 
-        logger.debug(
-            f"New connection to tunnel {self.config.tunnel_id}: {connection_info}"
-        )
-
-    async def _on_disconnection(self, connection_info: dict[str, Any]) -> None:
-        """Handle connection closure."""
-        self.state.active_connections = max(0, self.state.active_connections - 1)
+    async def _on_disconnection(self, _connection_info: dict[str, Any]) -> None:
+        """Handle connection disconnection."""
+        if self.state.active_connections > 0:
+            self.state.active_connections -= 1
         self.state.last_activity = datetime.now(UTC)
 
-        logger.debug(
-            f"Connection closed for tunnel {self.config.tunnel_id}: {connection_info}"
-        )
-
     async def _on_data_transfer(self, bytes_count: int) -> None:
-        """Handle data transfer tracking."""
+        """Handle data transfer."""
         self.state.bytes_transferred += bytes_count
         self.state.last_activity = datetime.now(UTC)
 
+    def register_log_handler(self, handler: Callable[[dict[str, Any]], None]) -> None:
+        """Register a log handler function."""
+        self._log_handlers = getattr(self, "_log_handlers", [])
+        self._log_handlers.append(handler)
+
+    def unregister_log_handler(self, handler: Callable[[dict[str, Any]], None]) -> None:
+        """Unregister a log handler function."""
+        self._log_handlers = getattr(self, "_log_handlers", [])
+        if handler in self._log_handlers:
+            self._log_handlers.remove(handler)
+
+    async def _log_request(self, request_info: dict[str, Any]) -> None:
+        """Log a request."""
+        if hasattr(self, "_log_handlers"):
+            for handler in self._log_handlers:
+                try:
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler(request_info)
+                    else:
+                        handler(request_info)
+                except Exception as e:
+                    logger.error(f"Error in log handler: {e}")
+
     def __str__(self) -> str:
-        """String representation of tunnel."""
-        return f"Tunnel({self.config.tunnel_id}, {self.state.status.value})"
+        return f"Tunnel({self.config.tunnel_id[:8]}...)"
 
     def __repr__(self) -> str:
-        """Detailed string representation of tunnel."""
-        return (
-            f"Tunnel(id={self.config.tunnel_id}, "
-            f"status={self.state.status.value}, "
-            f"local={self.config.local_host}:{self.config.local_port}, "
-            f"remote={self.config.remote_host}:{self.config.remote_port})"
-        )
+        return f"Tunnel(id={self.config.tunnel_id}, status={self.state.status})"

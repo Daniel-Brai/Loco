@@ -1,0 +1,2 @@
+DEFAULT_TUNNEL_PORT = 6000
+DEFAULT_TUNNEL_NAME = "loco-tunnel-{port}"

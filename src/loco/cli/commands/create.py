@@ -1,11 +1,19 @@
+"""
+Create a new tunnel with the specified configuration.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
 import uuid
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.text import Text
 
 from ... import get_ascii_banner
-from ...core.models import TunnelConfig, TunnelProtocol
+from ...core.constants import DEFAULT_TUNNEL_NAME, DEFAULT_TUNNEL_PORT
+from ...core.models import TunnelConfig, TunnelProtocol, TunnelStatus
 from ...network.manager import TunnelManager
 
 console = Console()
@@ -19,8 +27,12 @@ async def create_tunnel_async(
     remote_port: int | None = None,
     host: str = "127.0.0.1",
     start: bool = True,
+    logs: bool = True,
 ) -> None:
-    """Create a tunnel asynchronously."""
+    """Create and manage a tunnel."""
+    manager = TunnelManager()
+    tunnel_id = None
+
     try:
         try:
             tunnel_protocol = TunnelProtocol(protocol.lower())
@@ -30,18 +42,16 @@ async def create_tunnel_async(
             )
             return
 
-        manager = TunnelManager()
         await manager.load_from_storage()
-
         existing_tunnels = await manager.list_tunnels()
+
         is_first_tunnel = len(existing_tunnels) == 0
 
-        # Show welcome banner for first tunnel
         if is_first_tunnel:
             console.print()
             banner_lines = get_ascii_banner().split("\n")
             for i, line in enumerate(banner_lines):
-                if i < 6:  # ASCII art lines
+                if i < 6:
                     console.print(Text(line, style="bold cyan"))
                 elif "Lightning-fast" in line:
                     console.print(Text(line, style="bold white"))
@@ -58,59 +68,94 @@ async def create_tunnel_async(
             console.print()
 
         tunnel_id = str(uuid.uuid4())
+
         if remote_port is None:
-            remote_port = 8080 + len(existing_tunnels)
+            remote_port = DEFAULT_TUNNEL_PORT + len(existing_tunnels)
+
+        if host == "localhost":
+            host = "127.0.0.1"
 
         config = TunnelConfig(
             tunnel_id=tunnel_id,
-            name=name or f"tunnel-{port}",
+            name=name or DEFAULT_TUNNEL_NAME.format(port=remote_port),
             local_host=host,
             local_port=port,
-            remote_host="0.0.0.0",  # Default to localhost
+            remote_host="127.0.0.1",
             remote_port=remote_port,
             protocol=tunnel_protocol,
             subdomain=subdomain,
+            ssl_cert_path=None,
+            ssl_key_path=None,
         )
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Creating tunnel...", total=None)
-            await manager.create_tunnel(config)
-            progress.update(task, description="Tunnel created")
+        with console.status("[bold green]Creating tunnel...") as status:
+            tunnel_id = await manager.create_tunnel(config)
 
             if start:
-                progress.update(task, description="Starting tunnel...")
+                status.update("[bold green]Starting tunnel...")
                 await manager.start_tunnel(tunnel_id)
-                progress.update(task, description="Tunnel started")
 
-        status = "started" if start else "created"
-        console.print(f"[green]✓[/green] Tunnel {status} successfully!")
+                tunnel_status = await manager.get_tunnel_status(tunnel_id)
+                if tunnel_status != TunnelStatus.ACTIVE:
+                    console.print(
+                        f"[yellow]Warning: Tunnel created but status is {tunnel_status.value}[/yellow]"
+                    )
+
+        public_url = f"{config.protocol.value}://localhost:{config.remote_port}"
+
+        console.print("\n[bold green]✓ Tunnel created successfully!")
+        console.print(f"\n[bold]Tunnel ID:[/bold] [cyan]{tunnel_id[:8]}...")
+        console.print(f"[bold]Tunnel Name:[/bold] [cyan]{config.name}")
+        console.print(f"[bold]Public URL:[/bold] [cyan]{public_url}")
+        console.print(f"[bold]Local Service:[/bold] [cyan]{host}:{port}")
+
+        console.print()
+        console.print(
+            f"[dim]Your local service at {config.local_host}:{config.local_port} is now accessible via the public URL above.[/dim]"
+        )
+        console.print()
+        console.print("[bold yellow]Testing Instructions:[/bold yellow]")
+        console.print(
+            f"1. Make sure your service is running on [cyan]{config.local_host}:{config.local_port}[/cyan]"
+        )
+        console.print(
+            f"2. Test with: [cyan]curl http://localhost:{config.remote_port}[/cyan]"
+        )
+        console.print(
+            f"3. Or open [cyan]http://localhost:{config.remote_port}[/cyan] in your browser"
+        )
+        console.print()
+        console.print(
+            f"[yellow bold]IMPORTANT:[/yellow bold] [yellow]Make sure you have a service running on {config.local_host}:{config.local_port} or connections will be refused![/yellow]"
+        )
         console.print()
 
-        console.print("[bold]Tunnel Details:[/bold]")
-        console.print(f"  ID: {tunnel_id[:8]}...")
-        console.print(f"  Name: {config.name}")
-        console.print(f"  Local: {config.local_host}:{config.local_port}")
-        console.print(f"  Remote: {config.remote_host}:{config.remote_port}")
-        console.print(f"  Protocol: {config.protocol.value}")
+        if start and logs:
+            console.print("\n[dim]Press Ctrl+C to stop the tunnel[/dim]")
+            console.print("[dim]" + "=" * 86 + "[/dim]")
 
-        if start:
-            public_url = (
-                f"{config.protocol.value}://{config.remote_host}:{config.remote_port}"
-            )
-            console.print(f"  [bold green]Public URL: {public_url}[/bold green]")
-            console.print()
-            console.print(
-                f"[dim]Your local service at {config.local_host}:{config.local_port} is now accessible via the public URL above.\n[/dim]"
-            )
-        else:
-            console.print()
-            console.print(
-                f"[dim]Use 'loco status {tunnel_id[:8]}' to check tunnel status or 'loco start {tunnel_id[:8]}' to start it.[/dim]"
-            )
+            try:
+                from .logs import stream_logs_async
+
+                await stream_logs_async(tunnel_id, follow=True, header=False)
+            except KeyboardInterrupt:
+                console.print("\n[bold yellow]Stopping tunnel...")
+                await manager.stop_tunnel(tunnel_id)
+                console.print("[bold green]Tunnel stopped")
+        elif start:
+            console.print("\n[dim]Press Ctrl+C to stop the tunnel[/dim]")
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                pass
+            except KeyboardInterrupt:
+                console.print("\n[bold yellow]Stopping tunnel...")
+                await manager.stop_tunnel(tunnel_id)
+                console.print("[bold green]Tunnel stopped")
 
     except Exception as e:
-        console.print(f"[red]Error creating tunnel: {e}")
+        console.print(f"\n[red]Error creating tunnel - {e}")
+        if tunnel_id:
+            with contextlib.suppress(Exception):
+                await manager.stop_tunnel(tunnel_id)
