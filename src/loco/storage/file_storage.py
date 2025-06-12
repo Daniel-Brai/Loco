@@ -52,7 +52,7 @@ class FileStorage(StorageBackend):
 
             async with aiofiles.open(config_path) as f:
                 data = await f.read()
-                return TunnelConfig.model_validate(data)
+                return TunnelConfig.model_validate_json(data)
 
         except Exception as e:
             raise StorageError(f"Failed to load config: {e}") from e
