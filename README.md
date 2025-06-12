@@ -15,3 +15,77 @@ Loco gets you there without the hassle.
 - **Developer friendly** - Clean CLI, detailed logs, easy integration
 - **Rock solid** - Stable tunnels that don't drop connections
 - **Pure Python** - Easy to install, modify, and extend
+
+## Installation
+
+### Requirements
+
+- Python 3.12 or higher
+- Linux, macOS, or Windows
+
+### Install from PyPI (recommended)
+
+```bash
+pip install loco
+```
+
+### Build and Install from Source
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/Daniel-Brai/Loco.git
+cd Loco
+```
+
+2. Install dependencies and build:
+
+```bash
+# Using pip
+pip install -e .
+
+# Using uv (recommended)
+uv pip install -e .
+```
+
+### Development Setup
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/Daniel-Brai/Loco.git
+cd Loco
+```
+
+2. Create a virtual environment:
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install development dependencies:
+
+```bash
+# Using pip
+pip install -e ".[dev]"
+
+# Using uv
+uv pip install -e ".[dev]"
+```
+
+4. Set up pre-commit hooks:
+
+```bash
+pre-commit install
+```
+
+### Verify Installation
+
+After installation, verify that Loco is working:
+
+```bash
+loco --version
+```
+
+This should display the Loco banner with version information.
