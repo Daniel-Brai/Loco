@@ -29,7 +29,7 @@ class TestTunnelManager:
     @pytest.mark.asyncio
     async def test_create_tunnel(self, tunnel_manager):
         """Test creating a new tunnel."""
-        with patch("loco.network.manager.Tunnel") as mock_tunnel_class:
+        with patch("loco.network.manager.Tunnel") as mock_tunnel:
             config = TunnelConfig(
                 tunnel_id="new-tunnel",
                 name="New Test Tunnel",
@@ -44,11 +44,11 @@ class TestTunnelManager:
             )
 
             tunnel_instance = MagicMock()
-            mock_tunnel_class.return_value = tunnel_instance
+            mock_tunnel.return_value = tunnel_instance
 
             await tunnel_manager.create_tunnel(config)
 
-            mock_tunnel_class.assert_called_once_with(config)
+            mock_tunnel.assert_called_once_with(config)
             assert config.tunnel_id in tunnel_manager._tunnels
             tunnel_manager.storage.save_tunnel_config.assert_called_once_with(config)
             tunnel_manager.storage.save_tunnel_state.assert_called_once()
@@ -116,7 +116,6 @@ class TestTunnelManager:
             ssl_key_path=None,
         )
 
-        # Create states
         state1 = TunnelState(
             config=config1,
             status=TunnelStatus.ACTIVE,
