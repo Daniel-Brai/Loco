@@ -89,3 +89,11 @@ loco --version
 ```
 
 This should display the Loco banner with version information.
+
+## TODO
+
+- [ ] Add support for custom domains (This may require DNS configuration or require me to set up a custom DNS service)
+- [ ] Implement advanced authentication options
+- [ ] Improve error handling and logging
+- [ ] Add more detailed documentation
+- [ ] Add more tests

@@ -1,8 +1,10 @@
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from loco.core.models import TunnelConfig, TunnelProtocol, TunnelState, TunnelStatus
+from loco.network.manager import TunnelManager
 from loco.storage.file_storage import FileStorage
 
 
@@ -51,3 +53,26 @@ def sample_tunnel_state(sample_tunnel_config) -> TunnelState:
         public_url="http://localhost:9000",
         error_message=None,
     )
+
+
+@pytest.fixture
+def mock_storage():
+    storage = AsyncMock(spec=FileStorage)
+    storage.list_tunnel_configs.return_value = []
+    return storage
+
+
+@pytest.fixture
+def tunnel_manager(mock_storage):
+    with patch("loco.network.manager.FileStorage", return_value=mock_storage):
+        manager = TunnelManager()
+        return manager
+
+
+@pytest.fixture
+def mock_tunnel():
+    tunnel = AsyncMock()
+    config = MagicMock()
+    config.tunnel_id = "test-id"
+    tunnel.state = MagicMock()
+    return tunnel
