@@ -161,7 +161,6 @@ def main(
         console.print("  [cyan]create[/cyan]        Create a new tunnel")
         console.print("  [cyan]list[/cyan]          List all tunnels")
         console.print("  [cyan]start[/cyan]         Start a stopped tunnel")
-        console.print("  [cyan]start-all[/cyan]     Start all stopped tunnels")
         console.print("  [cyan]stop[/cyan]          Stop a tunnel")
         console.print("  [cyan]stop-all[/cyan]      Stop all active tunnels")
         console.print("  [cyan]status[/cyan]        Show tunnel status")
