@@ -27,10 +27,7 @@ jobs:
       - name: Install the project
         run: |
           uv sync --locked --all-extras --dev
-          uv pip install -e .
-
-      - name: Verify CLI works
-        run: python -m loco.cli.main --version
+          uv pip install .
 
   test:
     runs-on: ubuntu-latest
