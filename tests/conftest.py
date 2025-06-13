@@ -43,6 +43,25 @@ def sample_tunnel_config() -> TunnelConfig:
 
 
 @pytest.fixture
+def sample_tunnel_config_tcp():
+    return TunnelConfig(
+        tunnel_id="test-proxy",
+        name="Test Proxy",
+        local_host="127.0.0.1",
+        local_port=8000,
+        remote_host="0.0.0.0",
+        remote_port=9000,
+        protocol=TunnelProtocol.TCP,
+        subdomain=None,
+        ssl_cert_path=None,
+        ssl_key_path=None,
+        connection_timeout=30.0,
+        max_connections=100,
+        buffer_size=8192,
+    )
+
+
+@pytest.fixture
 def sample_tunnel_state(sample_tunnel_config) -> TunnelState:
     return TunnelState(
         config=sample_tunnel_config,
