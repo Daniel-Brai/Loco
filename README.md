@@ -1,5 +1,10 @@
 # Loco
 
+[![Build and test loco](https://github.com/Daniel-Brai/Loco/actions/workflows/ci.yml/badge.svg)](https://github.com/Daniel-Brai/Loco/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Daniel-Brai/Loco/branch/main/graph/badge.svg)](https://codecov.io/gh/Daniel-Brai/Loco)
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Fast, reliable localhost tunneling for web developers
 
 Loco makes it dead simple to expose your local web applications to the internet.
