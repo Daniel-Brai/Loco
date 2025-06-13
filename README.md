@@ -102,3 +102,4 @@ This should display the Loco banner with version information.
 - [ ] Improve error handling and logging
 - [ ] Add more detailed documentation
 - [ ] Add more tests
+- [ ] Add proper packaging for PyPI
